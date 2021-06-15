@@ -1,0 +1,48 @@
+name: "ResNet50-v1.5"
+backend: "paddle"
+max_batch_size: 128
+
+input [
+  {
+    name: "x0"
+    data_type: TYPE_FP32
+    dims: [ 3, 224, 224 ]
+  }
+]
+
+output [
+  {
+    name: "save_infer_model/scale_0.tmp_1"
+    data_type: TYPE_FP32
+    dims: [ 1000 ]
+  }
+]
+
+instance_group [ 
+  { 
+    count: 1
+    kind: KIND_GPU
+    gpus: [0]
+  }
+]
+
+dynamic_batching {
+    preferred_batch_size: [ 64, 128 ]
+    max_queue_delay_microseconds: 0
+}
+
+optimization { 
+  execution_accelerators { 
+    gpu_execution_accelerator : [ 
+      { 
+        name : "config"
+        parameters { key: "precision" value: "trt_fp16" }
+        parameters { key: "min_graph_size" value: "3" }
+        parameters { key: "workspace_size" value: "2147483647" }
+        parameters { key: "max_batch_size" value: "128" }
+        parameters { key: "enable_tensorrt_oss" value: "0" }
+        parameters { key: "is_dynamic" value: "0" }
+      }
+    ]
+  }
+}

@@ -37,10 +37,10 @@
     - [Launch Triton Inference Server](#launch-triton-inference-server)
     - [Verify Triton Is Running Correctly](#verify-triton-is-running-correctly)
 - [Examples](#examples)
-    - [ERNIE](#ernie)
+    - [ERNIE Base](#ernie-base)
     - [ResNet50 v1.5](#resnet50-v15)
 - [Performance](#performance)
-    - [ERNIE (T4)](#ernie-t4)
+    - [ERNIE Base (T4)](#ernie-base-t4)
     - [ResNet50 v1.5 (V100-SXM2-16G)](#resnet50-v15-v100-sxm2-16g)
     - [ResNet50 v1.5 (T4)](#resnet50-v15-t4)
 
@@ -114,8 +114,8 @@ $ cd examples
 $ ./fetch_perf_data.sh # download benchmark input
 ```
 
-### ERNIE
-[ERNIE](https://github.com/PaddlePaddle/ERNIE) is a pre-training framework for language understanding.
+### ERNIE Base
+[ERNIE-2.0](https://github.com/PaddlePaddle/ERNIE) is a pre-training framework for language understanding.
 
 Steps to run the benchmark on ERNIE
 ```bash
@@ -142,9 +142,9 @@ $ bash infer_resnet_v1.5.sh imagenet/<id>
 
 ## Performance
 
-### ERNIE (T4)
+### ERNIE Base (T4)
 
-| Precision   | Backend Accelerator  |   Client Batch Size |   Sequences/second |   P90 Latency |   P95 Latency |   P99 Latency |   Avg Latency |
+| Precision   | Backend Accelerator  |   Client Batch Size |   Sequences/second |   P90 Latency (ms) |   P95 Latency (ms) |   P99 Latency (ms) |   Avg Latency (ms) |
 |:------------|:---------------------|--------------------:|--------------------:|--------------:|--------------:|--------------:|--------------:|
 | FP16        | TensorRT             |                   1 |               270.0 |         3.813 |         3.846 |         4.007 |         3.692 |
 | FP16        | TensorRT             |                   2 |               500.4 |         4.282 |         4.332 |         4.709 |         3.980 |
@@ -155,7 +155,7 @@ $ bash infer_resnet_v1.5.sh imagenet/<id>
 
 ### ResNet50 v1.5 (V100-SXM2-16G)
 
-| Precision   | Backend Accelerator  |   Client Batch Size |   Sequences/second |   P90 Latency |   P95 Latency |   P99 Latency |   Avg Latency |
+| Precision   | Backend Accelerator  |   Client Batch Size |   Sequences/second |   P90 Latency (ms) |   P95 Latency (ms) |   P99 Latency (ms) |   Avg Latency (ms) |
 |:------------|:---------------------|--------------------:|--------------------:|--------------:|--------------:|--------------:|--------------:|
 | FP16        | TensorRT             |                   1 |               288.8 |         3.494 |         3.524 |         3.608 |         3.462 |
 | FP16        | TensorRT             |                   2 |               494.0 |         4.083 |         4.110 |         4.208 |         4.047 |
@@ -167,7 +167,7 @@ $ bash infer_resnet_v1.5.sh imagenet/<id>
 | FP16        | TensorRT             |                 128 |              1049.6 |       121.371 |       121.834 |       123.371 |       119.991 |
 
 ### ResNet50 v1.5 (T4)
-| Precision   | Backend Accelerator  |   Client Batch Size |   Sequences/second |   P90 Latency |   P95 Latency |   P99 Latency |   Avg Latency |
+| Precision   | Backend Accelerator  |   Client Batch Size |   Sequences/second |   P90 Latency (ms) |   P95 Latency (ms) |   P99 Latency (ms) |   Avg Latency (ms) |
 |:------------|:---------------------|--------------------:|--------------------:|--------------:|--------------:|--------------:|--------------:|
 | FP16        | TensorRT             |                   1 |               291.8 |         3.471 |         3.489 |         3.531 |         3.427 |
 | FP16        | TensorRT             |                   2 |               466.0 |         4.323 |         4.336 |         4.382 |         4.288 |

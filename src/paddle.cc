@@ -60,8 +60,9 @@ class ModelImpl {
   TRITONPADDLE_Error* ZeroCopyRun();
 
  private:
-  std::unique_ptr<paddle::AnalysisConfig> analysis_config_;
-  std::unique_ptr<paddle::PaddlePredictor> predictor_;
+  // TODO(wilber): unique_ptr?
+  std::unique_ptr<paddle_infer::Config> analysis_config_;
+  std::shared_ptr<paddle_infer::Predictor> predictor_;
   int device_id_;
 };
 
@@ -70,7 +71,7 @@ ModelImpl::ModelImpl(
     int device_id)
 {
   device_id_ = device_id;
-  analysis_config_.reset(new paddle::AnalysisConfig());
+  analysis_config_.reset(new paddle_infer::Config());
 
   if (param_path == nullptr) {
     analysis_config_->SetModel(model_path);
@@ -116,13 +117,13 @@ ModelImpl::ModelImpl(
     analysis_config_->EnableTensorRtOSS();
   }
 
-  predictor_ = std::move(CreatePaddlePredictor(*analysis_config_.get()));
+  predictor_ = std::move(paddle_infer::CreatePredictor(*analysis_config_.get()));
 }
 
 TRITONPADDLE_Error*
 ModelImpl::Run()
 {
-  predictor_->ZeroCopyRun();
+  predictor_->Run();
 
   // TODO: paddle predictor stream controll
   cudaDeviceSynchronize();
@@ -144,7 +145,7 @@ ModelImpl::GetInputPtr(
         std::string("] is not one of the Paddle predictor input"));
   }
 
-  auto tensor = predictor_->GetInputTensor(name);
+  auto tensor = predictor_->GetInputHandle(name);
   tensor->Reshape(shape.CompatibleShape());
   switch (dtype) {
     case TRITONPADDLE_TYPE_FP32:
@@ -182,7 +183,7 @@ ModelImpl::GetOutputMetadata(
         std::string("] is not one of the Paddle predictor input"));
   }
 
-  auto tensor = predictor_->GetOutputTensor(name);
+  auto tensor = predictor_->GetOutputHandle(name);
   auto tensor_type = tensor->type();
   auto tensor_shape = tensor->shape();
 

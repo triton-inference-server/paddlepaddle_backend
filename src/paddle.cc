@@ -74,7 +74,7 @@ ModelImpl::ModelImpl(
   analysis_config_.reset(new paddle_infer::Config());
 
   if (param_path == nullptr) {
-    analysis_config_->SetModel(model_path, "");
+    analysis_config_->SetModel(model_path);
   } else {
     analysis_config_->SetModel(model_path, param_path);
   }
@@ -658,22 +658,32 @@ ModelInstanceState::DetermineModelAndParamsPath(
     std::string* param_path)
 {
   bool exists;
+  *model_path = JoinPath({model_dir, "__model__"});
+  RETURN_IF_ERROR(FileExists(*model_path, &exists));
+  if (exists) {
+    *model_path = model_dir;
+    *param_path = "";
+    return nullptr;
+  }
+
   *model_path = JoinPath({model_dir, "model.pdmodel"});
   RETURN_IF_ERROR(FileExists(*model_path, &exists));
   if (not exists) {
     return TRITONSERVER_ErrorNew(
         TRITONSERVER_ERROR_NOT_FOUND,
         std::string(
-            "Paddle model should be named as 'model.pdmodel'").c_str());
+            "Paddle model should be named as '__model__' or 'model.pdmodel'")
+            .c_str());
   }
 
   *param_path = JoinPath({model_dir, "model.pdiparams"});
   RETURN_IF_ERROR(FileExists(*param_path, &exists));
   if (not exists) {
-    LOG_MESSAGE(
-      TRITONSERVER_LOG_INFO,
-      (std::string("Paddle params should be named as 'model.pdiparams' or not provided.").c_str()));
-    *param_path = "";
+    return TRITONSERVER_ErrorNew(
+        TRITONSERVER_ERROR_NOT_FOUND,
+        std::string("Paddle params should be named as 'model.pdiparams' if "
+                    "'model.pdmodel' is provided")
+            .c_str());
   }
 
   return nullptr;

@@ -32,6 +32,7 @@
 #include <vector>
 
 #include "paddle_inference_api.h"
+#include "experimental/phi/common/float16.h"
 #include "triton/core/tritonserver.h"
 
 // namespace triton { namespace backend { namespace paddle {
@@ -85,6 +86,7 @@ typedef enum {
   TRITONPADDLE_TYPE_INT32,
   TRITONPADDLE_TYPE_UINT8,
   TRITONPADDLE_TYPE_INT8,
+  TRITONPADDLE_TYPE_FP16,
   TRITONPADDLE_TYPE_INVALID
 } TRITONPADDLE_DataType;
 
@@ -119,7 +121,6 @@ size_t TRITONPADDLE_DataTypeByteSize(TRITONPADDLE_DataType dtype);
 
 // TRITON PADDLE MODE
 typedef enum {
-  TRITONPADDLE_MODE_FLUID,
   TRITONPADDLE_MODE_FP32,
   TRITONPADDLE_MODE_FP16,
   TRITONPADDLE_MODE_INT8,
@@ -129,12 +130,22 @@ typedef enum {
 class TRITONPADDLE_Config {
  public:
   TRITONPADDLE_Config();
+  // trt
+  bool use_trt_;
   int64_t max_batch_size_;
   int64_t workspace_size_;
   int64_t min_graph_size_;
   TRITONPADDLE_Precision precision_;
   bool is_dynamic_;
   bool enable_tensorrt_oss_;
+  // cpu
+  bool use_cpu_;
+  bool use_mkldnn_;
+  bool use_ort_;
+  bool use_mkldnn_int8_;
+  int cpu_math_library_num_threads_;
+  int mkldnn_capacity_;
+
   std::map<std::string, std::vector<int>> dynamic_min_shape_;
   std::map<std::string, std::vector<int>> dynamic_max_shape_;
   std::map<std::string, std::vector<int>> dynamic_opt_shape_;

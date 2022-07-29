@@ -24,8 +24,8 @@
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-FROM nvcr.io/nvidia/tritonserver:21.04-py3 as full
-FROM nvcr.io/nvidia/tritonserver:21.04-py3-min
+FROM nvcr.io/nvidia/tritonserver:21.10-py3 as full
+FROM nvcr.io/nvidia/tritonserver:21.10-py3-min
 
 RUN export DEBIAN_FRONTEND=noninteractive \
     && apt update \

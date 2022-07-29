@@ -27,6 +27,6 @@
 
 docker run -it --rm \
            -v`pwd`:/workspace/paddle_backend \
-           nvcr.io/nvidia/tritonserver:21.04-py3-sdk \
+           nvcr.io/nvidia/tritonserver:21.10-py3 \
            bash -c \
-           'cd /workspace/paddle_backend; rm -rf build; mkdir build; cd build; cmake .. -DPADDLE_INFERENCE_DIR=../paddle-lib/paddle -DTRITON_COMMON_REPO_TAG=r21.04 -DTRITON_CORE_REPO_TAG=r21.04 -DTRITON_BACKEND_REPO_TAG=r21.04; make -j`nproc`'
+           'cd /workspace/paddle_backend; rm -rf build; mkdir build; cd build;apt-get update; apt-get install -y --no-install-recommends rapidjson-dev;cmake .. -DPADDLE_INFERENCE_DIR=../paddle-lib/paddle -DTRITON_COMMON_REPO_TAG=r21.10 -DTRITON_CORE_REPO_TAG=r21.10 -DTRITON_BACKEND_REPO_TAG=r21.10; make -j`nproc`'

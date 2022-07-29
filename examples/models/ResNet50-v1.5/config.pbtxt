@@ -35,7 +35,7 @@ optimization {
   execution_accelerators { 
     gpu_execution_accelerator : [ 
       { 
-        name : "config"
+        name : "tensorrt"
         parameters { key: "precision" value: "trt_fp16" }
         parameters { key: "min_graph_size" value: "3" }
         parameters { key: "workspace_size" value: "2147483647" }

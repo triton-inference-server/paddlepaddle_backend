@@ -84,6 +84,8 @@ ConvertDataType(TRITONSERVER_DataType dtype)
       return TRITONPADDLE_TYPE_INT64;
     case TRITONSERVER_TYPE_FP32:
       return TRITONPADDLE_TYPE_FP32;
+    case TRITONSERVER_TYPE_FP16:
+      return TRITONPADDLE_TYPE_FP16;
     default:
       break;
   }
@@ -106,6 +108,8 @@ ConvertDataType(TRITONPADDLE_DataType dtype)
       return TRITONSERVER_TYPE_INT64;
     case TRITONPADDLE_TYPE_FP32:
       return TRITONSERVER_TYPE_FP32;
+    case TRITONPADDLE_TYPE_FP16:
+      return TRITONSERVER_TYPE_FP16;
     default:
       break;
   }
@@ -147,7 +151,9 @@ ConvertDataType(const std::string& dtype)
     return TRITONPADDLE_DataType::TRITONPADDLE_TYPE_INT32;
   } else if (dtype == "TYPE_INT64") {
     return TRITONPADDLE_DataType::TRITONPADDLE_TYPE_INT64;
-  }
+  } else if (dtype == "TYPE_FP16") {
+    return TRITONPADDLE_DataType::TRITONPADDLE_TYPE_FP16;
+  } 
   return TRITONPADDLE_DataType::TRITONPADDLE_TYPE_INVALID;
 }
 
@@ -165,6 +171,8 @@ TRITONPADDLE_DataTypeByteSize(TRITONPADDLE_DataType dtype)
       return sizeof(uint8_t);
     case TRITONPADDLE_DataType::TRITONPADDLE_TYPE_INT8:
       return sizeof(int8_t);
+    case TRITONPADDLE_DataType::TRITONPADDLE_TYPE_FP16:
+      return sizeof(phi::dtype::float16);
     default:
       break;
   }
@@ -194,9 +202,11 @@ TRITONPADDLE_ErrorDelete(TRITONPADDLE_Error* error)
 }
 
 TRITONPADDLE_Config::TRITONPADDLE_Config()
-    : max_batch_size_(1), workspace_size_(1 << 30), min_graph_size_(5),
-      precision_(TRITONPADDLE_MODE_FLUID), is_dynamic_(false),
-      enable_tensorrt_oss_(false)
+    : use_trt_(false), max_batch_size_(1), workspace_size_(1 << 30), min_graph_size_(5),
+      precision_(TRITONPADDLE_MODE_FP32), is_dynamic_(false),
+      enable_tensorrt_oss_(false), use_cpu_(false), use_mkldnn_(false),
+      use_ort_(false), use_mkldnn_int8_(false), cpu_math_library_num_threads_(1), 
+      mkldnn_capacity_(10)
 {
 }
 

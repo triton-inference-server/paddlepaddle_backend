@@ -24,7 +24,7 @@
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-FROM nvcr.io/nvidia/tritonserver:21.04-py3-sdk
+FROM nvcr.io/nvidia/tritonserver:21.10-py3
 
 RUN export DEBIAN_FRONTEND=noninteractive \
  && apt-get update \
@@ -40,7 +40,7 @@ RUN export DEBIAN_FRONTEND=noninteractive \
 
 RUN git clone 'https://github.com/PaddlePaddle/Paddle.git'
 WORKDIR /workspace/Paddle
-RUN git checkout v2.0.2
+RUN git checkout v2.3.1
 
 RUN mkdir build-env && \
     cd build-env && \
@@ -51,7 +51,8 @@ RUN mkdir build-env && \
              -DCMAKE_BUILD_TYPE=Release \
              -DCUDA_ARCH_NAME=Auto \
              -DON_INFER=ON \
-             -DWITH_MKL=OFF \
+             -DWITH_MKL=ON \
              -DWITH_TENSORRT=ON \
+             -DWITH_ONNXRUNTIME \
              -DCMAKE_C_COMPILER=`which gcc-8` -DCMAKE_CXX_COMPILER=`which g++-8` && \
     make -j`nproc`

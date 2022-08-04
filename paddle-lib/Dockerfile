@@ -26,8 +26,13 @@
 
 FROM nvcr.io/nvidia/tritonserver:21.10-py3
 
-RUN export DEBIAN_FRONTEND=noninteractive \
- && apt-get update \
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-key del 7fa2af80 \
+    && wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2004/x86_64/cuda-keyring_1.0-1_all.deb \
+    && dpkg -i cuda-keyring_1.0-1_all.deb
+
+RUN apt-get update \
  && apt-get install -y --no-install-recommends \
         cmake \
         patchelf \
@@ -39,10 +44,10 @@ RUN export DEBIAN_FRONTEND=noninteractive \
         libssl-dev
 
 RUN git clone 'https://github.com/PaddlePaddle/Paddle.git'
-WORKDIR /workspace/Paddle
-RUN git checkout v2.3.1
+WORKDIR /opt/tritonserver/Paddle
+RUN git pull && git checkout release/2.3
 
-RUN mkdir build-env && \
+RUN python3 -m pip install pyyaml && mkdir build-env && \
     cd build-env && \
     cmake .. -DWITH_PYTHON=OFF \
              -DWITH_GPU=ON \
@@ -53,6 +58,6 @@ RUN mkdir build-env && \
              -DON_INFER=ON \
              -DWITH_MKL=ON \
              -DWITH_TENSORRT=ON \
-             -DWITH_ONNXRUNTIME \
+             -DWITH_ONNXRUNTIME=ON \
              -DCMAKE_C_COMPILER=`which gcc-8` -DCMAKE_CXX_COMPILER=`which g++-8` && \
     make -j`nproc`

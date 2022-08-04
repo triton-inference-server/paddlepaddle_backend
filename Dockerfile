@@ -27,14 +27,32 @@
 FROM nvcr.io/nvidia/tritonserver:21.10-py3 as full
 FROM nvcr.io/nvidia/tritonserver:21.10-py3-min
 
-RUN export DEBIAN_FRONTEND=noninteractive \
-    && apt update \
-    && apt install -y --no-install-recommends libre2-5 libb64-0d
+ENV DEBIAN_FRONTEND=noninteractive
+ENV DCGM_VERSION=2.2.9
+RUN apt update && apt install -y --no-install-recommends software-properties-common \
+    && wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2004/x86_64/cuda-ubuntu2004.pin \
+    && mkdir -p /etc/apt/preferences.d/cuda-repository-pin-600 \
+    && mv cuda-ubuntu2004.pin /etc/apt/preferences.d/cuda-repository-pin-600/ \
+    && apt-key del 7fa2af80 \
+    && wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2004/x86_64/cuda-keyring_1.0-1_all.deb \
+    && dpkg -i cuda-keyring_1.0-1_all.deb \
+    && apt-key adv --fetch-keys https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2004/x86_64/7fa2af80.pub \
+    && add-apt-repository "deb https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2004/x86_64/ /" \
+    && apt-get update && apt-get install -y --no-install-recommends datacenter-gpu-manager=1:2.2.9
+
+RUN apt update \
+    && apt install -y --no-install-recommends libre2-5 libb64-0d python3 python3-pip libarchive-dev \
+    && python3 -m pip install -U pip \
+    && python3 -m pip install paddlepaddle-gpu paddlenlp
 
 COPY --from=full /opt/tritonserver/bin /opt/tritonserver/bin
 COPY --from=full /opt/tritonserver/lib /opt/tritonserver/lib
+COPY --from=full /opt/tritonserver/include /opt/tritonserver/include
+COPY --from=full /opt/tritonserver/backends/python /opt/tritonserver/backends/python
+COPY --from=full /opt/tritonserver/backends/onnxruntime /opt/tritonserver/backends/onnxruntime
 
-COPY paddle-lib/paddle /opt/paddle
+COPY paddle-lib/paddle/lib paddle-lib/onnxruntime/lib paddle-lib/paddle2onnx/lib paddle-lib/mkldnn/lib paddle-lib/mklml/lib /opt/paddle/
 COPY build/libtriton_paddle.so /opt/tritonserver/backends/paddle/
 
-ENV LD_LIBRARY_PATH="/opt/paddle/lib:$LD_LIBRARY_PATH"
+ENV LD_LIBRARY_PATH="/opt/paddle/:$LD_LIBRARY_PATH"
+ENV PATH="/opt/tritonserver/bin:$PATH"

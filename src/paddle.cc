@@ -93,8 +93,9 @@ ModelImpl::ModelImpl(
     } else if(config->use_mkldnn_) {
       analysis_config_->EnableMKLDNN();
       analysis_config_->SetMkldnnCacheCapacity(config->mkldnn_capacity_);
-      if(config->use_mkldnn_int8_)
-        analysis_config_->EnableMkldnnInt8();
+      // Release/2.3 don't support mkldnn_int8
+      // if(config->use_mkldnn_int8_)
+      //   analysis_config_->EnableMkldnnInt8();
     }
   } else {
     place_type_ = paddle_infer::PlaceType::kGPU;

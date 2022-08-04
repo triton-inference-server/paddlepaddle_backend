@@ -24,9 +24,14 @@
 # OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+if [ ! -d "./cmake-3.18.6-Linux-x86_64/" ]; then
+    wget https://github.com/Kitware/CMake/releases/download/v3.18.6/cmake-3.18.6-Linux-x86_64.tar.gz
+    tar -zxvf cmake-3.18.6-Linux-x86_64.tar.gz
+    rm -rf cmake-3.18.6-Linux-x86_64.tar.gz
+fi
 
 docker run -it --rm \
            -v`pwd`:/workspace/paddle_backend \
            nvcr.io/nvidia/tritonserver:21.10-py3 \
            bash -c \
-           'cd /workspace/paddle_backend; rm -rf build; mkdir build; cd build;apt-get update; apt-get install -y --no-install-recommends rapidjson-dev;cmake .. -DPADDLE_INFERENCE_DIR=../paddle-lib/paddle -DTRITON_COMMON_REPO_TAG=r21.10 -DTRITON_CORE_REPO_TAG=r21.10 -DTRITON_BACKEND_REPO_TAG=r21.10; make -j`nproc`'
+           'cd /workspace/paddle_backend; rm -rf build; mkdir build; cd build;apt-get update; apt-get install -y --no-install-recommends rapidjson-dev;export PATH=/workspace/paddle_backend/cmake-3.18.6-Linux-x86_64/bin:$PATH;cmake .. -DPADDLE_INFERENCE_DIR=../paddle-lib/paddle -DTRITON_COMMON_REPO_TAG=r21.10 -DTRITON_CORE_REPO_TAG=r21.10 -DTRITON_BACKEND_REPO_TAG=r21.10; make -j`nproc`'

@@ -45,7 +45,7 @@ class ModelImpl {
  public:
   ModelImpl(
       const char* model_path, const char* param_path,
-      TRITONPADDLE_Config* config, int device_id);
+      TRITONPADDLE_Config* config, const int32_t device_id);
   ~ModelImpl() = default;
   TRITONPADDLE_Error* Run();
 
@@ -63,34 +63,46 @@ class ModelImpl {
   // TODO(wilber): unique_ptr?
   std::unique_ptr<paddle_infer::Config> analysis_config_;
   std::shared_ptr<paddle_infer::Predictor> predictor_;
-  int device_id_;
+  paddle_infer::PlaceType place_type_;
 };
 
 ModelImpl::ModelImpl(
     const char* model_path, const char* param_path, TRITONPADDLE_Config* config,
-    int device_id)
+    const int32_t device_id)
 {
-  device_id_ = device_id;
   analysis_config_.reset(new paddle_infer::Config());
 
   if (param_path == nullptr) {
-    analysis_config_->SetModel(model_path);
+    analysis_config_->SetModel(model_path, "");
   } else {
     analysis_config_->SetModel(model_path, param_path);
   }
 
   // default settings
-  analysis_config_->EnableUseGpu(0, device_id_);
   analysis_config_->SwitchSpecifyInputNames(true);
-  analysis_config_->EnableCUDNN();
   analysis_config_->SwitchIrOptim(true);
   analysis_config_->EnableMemoryOptim();
   analysis_config_->SwitchUseFeedFetchOps(false);
 
-  if (config->precision_ != TRITONPADDLE_MODE_FLUID) {
+  if (config->use_cpu_) {
+    place_type_ = paddle_infer::PlaceType::kCPU;
+    analysis_config_->SetCpuMathLibraryNumThreads(config->cpu_math_library_num_threads_);
+    if(config->use_ort_) {
+      analysis_config_->EnableONNXRuntime();
+      analysis_config_->EnableORTOptimization();
+    } else if(config->use_mkldnn_) {
+      analysis_config_->EnableMKLDNN();
+      analysis_config_->SetMkldnnCacheCapacity(config->mkldnn_capacity_);
+      // Release/2.3 don't support mkldnn_int8
+      // if(config->use_mkldnn_int8_)
+      //   analysis_config_->EnableMkldnnInt8();
+    }
+  } else {
+    place_type_ = paddle_infer::PlaceType::kGPU;
+    analysis_config_->EnableUseGpu(100, device_id);
+
     paddle::AnalysisConfig::Precision compute_precision;
     compute_precision = paddle::AnalysisConfig::Precision::kFloat32;
-
     if (config->precision_ == TRITONPADDLE_MODE_FP32) {
       compute_precision = paddle::AnalysisConfig::Precision::kFloat32;
     } else if (config->precision_ == TRITONPADDLE_MODE_FP16) {
@@ -102,21 +114,18 @@ ModelImpl::ModelImpl(
           "unknown precision type when setting tensorrt compute precision.");
       THROW_IF_TRITONPADDLE_ERROR(error);
     }
-    analysis_config_->EnableTensorRtEngine(
+
+    if (config->use_trt_) {
+      analysis_config_->EnableTensorRtEngine(
         config->workspace_size_, config->max_batch_size_,
         config->min_graph_size_, compute_precision, false, false);
+      if (config->is_dynamic_) {
+        analysis_config_->SetTRTDynamicShapeInfo(
+            config->dynamic_min_shape_, config->dynamic_max_shape_,
+            config->dynamic_opt_shape_);
+      }
+    }
   }
-
-  if (config->is_dynamic_) {
-    analysis_config_->SetTRTDynamicShapeInfo(
-        config->dynamic_min_shape_, config->dynamic_max_shape_,
-        config->dynamic_opt_shape_);
-  }
-
-  if (config->enable_tensorrt_oss_) {
-    analysis_config_->EnableTensorRtOSS();
-  }
-
   predictor_ = std::move(paddle_infer::CreatePredictor(*analysis_config_.get()));
 }
 
@@ -126,7 +135,8 @@ ModelImpl::Run()
   predictor_->Run();
 
   // TODO: paddle predictor stream controll
-  cudaDeviceSynchronize();
+  if(analysis_config_->use_gpu())
+    cudaDeviceSynchronize();
   return nullptr;
 }
 
@@ -150,15 +160,19 @@ ModelImpl::GetInputPtr(
   switch (dtype) {
     case TRITONPADDLE_TYPE_FP32:
       *ptr = reinterpret_cast<char*>(
-          tensor->mutable_data<float>(paddle_infer::PlaceType::kGPU));
+          tensor->mutable_data<float>(place_type_));
       break;
     case TRITONPADDLE_TYPE_INT32:
       *ptr = reinterpret_cast<char*>(
-          tensor->mutable_data<int32_t>(paddle_infer::PlaceType::kGPU));
+          tensor->mutable_data<int32_t>(place_type_));
       break;
     case TRITONPADDLE_TYPE_INT64:
       *ptr = reinterpret_cast<char*>(
-          tensor->mutable_data<int64_t>(paddle_infer::PlaceType::kGPU));
+          tensor->mutable_data<int64_t>(place_type_));
+      break;
+    case TRITONPADDLE_TYPE_FP16:
+      *ptr = reinterpret_cast<char*>(
+          tensor->mutable_data<phi::dtype::float16>(place_type_));
       break;
     default:
       return TRITONPADDLE_ErrorNew(std::string(
@@ -193,24 +207,28 @@ ModelImpl::GetOutputMetadata(
   switch (*dtype) {
     case TRITONPADDLE_TYPE_FP32:
       *ptr = reinterpret_cast<char*>(
-          tensor->mutable_data<float>(paddle_infer::PlaceType::kGPU));
+          tensor->mutable_data<float>(place_type_));
       break;
     case TRITONPADDLE_TYPE_INT64:
       *ptr = reinterpret_cast<char*>(
-          tensor->mutable_data<int64_t>(paddle_infer::PlaceType::kGPU));
+          tensor->mutable_data<int64_t>(place_type_));
       break;
     case TRITONPADDLE_TYPE_INT32:
       *ptr = reinterpret_cast<char*>(
-          tensor->mutable_data<int32_t>(paddle_infer::PlaceType::kGPU));
+          tensor->mutable_data<int32_t>(place_type_));
+      break;
+    case TRITONPADDLE_TYPE_FP16:
+      *ptr = reinterpret_cast<char*>(
+          tensor->mutable_data<phi::dtype::float16>(place_type_));
       break;
     /*
     case TRITONPADDLE_TYPE_INT8:
       *ptr = reinterpret_cast<char*>(
-          tensor->mutable_data<int8_t>(paddle_infer::PlaceType::kGPU));
+          tensor->mutable_data<int8_t>(place_type_));
       break;
     case TRITONPADDLE_TYPE_UINT8:
       *ptr = reinterpret_cast<char*>(
-          tensor->mutable_data<uint8_t>(paddle_infer::PlaceType::kGPU));
+          tensor->mutable_data<uint8_t>(place_type_));
       break;
     */
     default:
@@ -224,7 +242,7 @@ ModelImpl::GetOutputMetadata(
 TRITONSERVER_Error*
 TRITONPADDLE_ModelCreate(
     TRITONPADDLE_Model** model, const char* model_path, const char* param_path,
-    TRITONPADDLE_Config* config, int device_id)
+    TRITONPADDLE_Config* config, const int32_t device_id)
 {
   try {
     ModelImpl* model_impl =
@@ -406,136 +424,181 @@ ModelState::Create(TRITONBACKEND_Model* triton_model, ModelState** state)
 ModelState::ModelState(TRITONBACKEND_Model* triton_model)
     : BackendModel(triton_model)
 {
-  TRITONPADDLE_Config config;
-  triton::common::TritonJson::Value optimization;
 
+  triton::common::TritonJson::Value optimization;
   if (not ModelConfig().Find("optimization", &optimization)) {
-    config_ = config;
     return;
   }
 
   triton::common::TritonJson::Value eas;
   if (not optimization.Find("execution_accelerators", &eas)) {
-    config_ = config;
     return;
   }
 
-  triton::common::TritonJson::Value gpu_eas;
-  if (not eas.Find("gpu_execution_accelerator", &gpu_eas)) {
-    config_ = config;
-    return;
-  }
-
-  for (size_t idx = 0; idx < gpu_eas.ArraySize(); idx++) {
-    triton::common::TritonJson::Value ea;
-    THROW_IF_BACKEND_MODEL_ERROR(gpu_eas.IndexAsObject(idx, &ea));
-    std::string name;
-    THROW_IF_BACKEND_MODEL_ERROR(ea.MemberAsString("name", &name));
-
-    if (name == "config") {
-      triton::common::TritonJson::Value params;
-      if (ea.Find("parameters", &params)) {
-        std::vector<std::string> param_keys;
-        THROW_IF_BACKEND_MODEL_ERROR(params.Members(&param_keys));
-        for (const auto& param_key : param_keys) {
-          std::string value_string;
-          if (param_key == "precision") {
-            THROW_IF_BACKEND_MODEL_ERROR(
-                params.MemberAsString(param_key.c_str(), &value_string));
-            std::transform(
-                value_string.begin(), value_string.end(), value_string.begin(),
-                ::tolower);
-            if (value_string == "fluid") {
-              config.precision_ = TRITONPADDLE_MODE_FLUID;
-            } else if (value_string == "trt_fp32") {
-              config.precision_ = TRITONPADDLE_MODE_FP32;
-            } else if (value_string == "trt_fp16") {
-              config.precision_ = TRITONPADDLE_MODE_FP16;
-            } else if (value_string == "trt_int8") {
-              config.precision_ = TRITONPADDLE_MODE_INT8;
-            } else {
-              TRITONSERVER_Error* error = TRITONSERVER_ErrorNew(
-                  TRITONSERVER_ERROR_INVALID_ARG,
-                  std::string(
-                      "unknown precision type '" + value_string +
-                      "' is provided. Available choices are [fluid, trt_fp32, "
-                      "trt_fp16, trt_int8]")
-                      .c_str());
-              THROW_IF_BACKEND_MODEL_ERROR(error);
+  // CPU execution providers
+  {
+    triton::common::TritonJson::Value cpu_eas;
+    if (eas.Find("cpu_execution_accelerator", &cpu_eas)) {
+      for (size_t idx = 0; idx < cpu_eas.ArraySize(); idx++) {
+        triton::common::TritonJson::Value ea;
+        THROW_IF_BACKEND_MODEL_ERROR(cpu_eas.IndexAsObject(idx, &ea));
+        std::string name;
+        THROW_IF_BACKEND_MODEL_ERROR(ea.MemberAsString("name", &name));
+        if (name == "mkldnn") {
+          config_.use_mkldnn_ = true;
+        } else if (name == "ort") {
+          config_.use_ort_ = true;
+        } else if (name != "") {
+          TRITONSERVER_Error* error = TRITONSERVER_ErrorNew(
+              TRITONSERVER_ERROR_INVALID_ARG,
+              std::string(
+                  "unknown cpu_execution_accelerator name '" + name +
+                  "' is provided. Available choices are [mkldnn, ort]")
+                  .c_str());
+          THROW_IF_BACKEND_MODEL_ERROR(error);
+        }
+        triton::common::TritonJson::Value params;
+        if (ea.Find("parameters", &params)) {
+          std::vector<std::string> param_keys;
+          THROW_IF_BACKEND_MODEL_ERROR(params.Members(&param_keys));
+          for (const auto& param_key : param_keys) {
+            std::string value_string;
+            if (param_key == "cpu_threads") {
+              THROW_IF_BACKEND_MODEL_ERROR(
+                  params.MemberAsString(param_key.c_str(), &value_string));
+              THROW_IF_BACKEND_MODEL_ERROR(
+                  ParseIntValue(value_string, &config_.cpu_math_library_num_threads_));
+            } else if (param_key == "capacity") {
+              THROW_IF_BACKEND_MODEL_ERROR(
+                  params.MemberAsString(param_key.c_str(), &value_string));
+              THROW_IF_BACKEND_MODEL_ERROR(
+                  ParseIntValue(value_string, &config_.mkldnn_capacity_));
+            } else if (param_key == "use_int8") {
+              THROW_IF_BACKEND_MODEL_ERROR(
+                  params.MemberAsString(param_key.c_str(), &value_string));
+              THROW_IF_BACKEND_MODEL_ERROR(
+                  ParseBoolValue(value_string, &config_.use_mkldnn_int8_));
             }
-          } else if (param_key == "min_graph_size") {
-            THROW_IF_BACKEND_MODEL_ERROR(
-                params.MemberAsString(param_key.c_str(), &value_string));
-            THROW_IF_BACKEND_MODEL_ERROR(
-                ParseLongLongValue(value_string, &config.min_graph_size_));
-          } else if (param_key == "workspace_size") {
-            THROW_IF_BACKEND_MODEL_ERROR(
-                params.MemberAsString(param_key.c_str(), &value_string));
-            THROW_IF_BACKEND_MODEL_ERROR(
-                ParseLongLongValue(value_string, &config.workspace_size_));
-          } else if (param_key == "max_batch_size") {
-            THROW_IF_BACKEND_MODEL_ERROR(
-                params.MemberAsString(param_key.c_str(), &value_string));
-            THROW_IF_BACKEND_MODEL_ERROR(
-                ParseLongLongValue(value_string, &config.max_batch_size_));
-          } else if (param_key == "enable_tensorrt_oss") {
-            THROW_IF_BACKEND_MODEL_ERROR(
-                params.MemberAsString(param_key.c_str(), &value_string));
-            THROW_IF_BACKEND_MODEL_ERROR(
-                ParseBoolValue(value_string, &config.enable_tensorrt_oss_));
-          } else if (param_key == "is_dynamic") {
-            THROW_IF_BACKEND_MODEL_ERROR(
-                params.MemberAsString(param_key.c_str(), &value_string));
-            THROW_IF_BACKEND_MODEL_ERROR(
-                ParseBoolValue(value_string, &config.is_dynamic_));
-          } else {
-            TRITONSERVER_Error* error = TRITONSERVER_ErrorNew(
-                TRITONSERVER_ERROR_INVALID_ARG,
-                std::string(
-                    "unknown parameter '" + param_key +
-                    "' is provided for GPU execution accelerator "
-                    "config. Available choices are [precision, "
-                    "min_graph_size, workspace_size, max_batch_size, "
-                    "enable_tensorrt_oss, is_dynamic]")
-                    .c_str());
-            THROW_IF_BACKEND_MODEL_ERROR(error);
           }
         }
       }
-    } else if (
-        name == "min_shape" or name == "max_shape" or name == "opt_shape") {
-      triton::common::TritonJson::Value params;
-      if (ea.Find("parameters", &params)) {
-        std::vector<std::string> input_names;
-        THROW_IF_BACKEND_MODEL_ERROR(params.Members(&input_names));
-        for (const auto& input_name : input_names) {
-          std::string str_shape;
-          THROW_IF_BACKEND_MODEL_ERROR(
-              params.MemberAsString(input_name.c_str(), &str_shape));
-          if (name == "min_shape") {
-            config.dynamic_min_shape_[input_name] =
-                TRITONPADDLE_Shape(str_shape).CompatibleShape();
-          } else if (name == "max_shape") {
-            config.dynamic_max_shape_[input_name] =
-                TRITONPADDLE_Shape(str_shape).CompatibleShape();
-          } else {
-            config.dynamic_opt_shape_[input_name] =
-                TRITONPADDLE_Shape(str_shape).CompatibleShape();
-          }
-        }
-      }
-    } else {
-      TRITONSERVER_Error* error = TRITONSERVER_ErrorNew(
-          TRITONSERVER_ERROR_INVALID_ARG,
-          std::string(
-              "unknown name '" + name +
-              "' is provided for GPU execution accelerator "
-              "Available choices are [config, min_shape, max_shape, opt_shape]")
-              .c_str());
-      THROW_IF_BACKEND_MODEL_ERROR(error);
     }
   }
-  config_ = config;
+
+  // GPU execution providers
+  {
+    triton::common::TritonJson::Value gpu_eas;
+    if (eas.Find("gpu_execution_accelerator", &gpu_eas)) {
+      for (size_t idx = 0; idx < gpu_eas.ArraySize(); idx++) {
+        triton::common::TritonJson::Value ea;
+        THROW_IF_BACKEND_MODEL_ERROR(gpu_eas.IndexAsObject(idx, &ea));
+        std::string name;
+        THROW_IF_BACKEND_MODEL_ERROR(ea.MemberAsString("name", &name));
+
+        if (name == "tensorrt") {
+          config_.use_trt_ = true;
+          triton::common::TritonJson::Value params;
+          if (ea.Find("parameters", &params)) {
+            std::vector<std::string> param_keys;
+            THROW_IF_BACKEND_MODEL_ERROR(params.Members(&param_keys));
+            for (const auto& param_key : param_keys) {
+              std::string value_string;
+              if (param_key == "precision") {
+                THROW_IF_BACKEND_MODEL_ERROR(
+                    params.MemberAsString(param_key.c_str(), &value_string));
+                std::transform(
+                    value_string.begin(), value_string.end(), value_string.begin(),
+                    ::tolower);
+                if (value_string == "trt_fp32") {
+                  config_.precision_ = TRITONPADDLE_MODE_FP32;
+                } else if (value_string == "trt_fp16") {
+                  config_.precision_ = TRITONPADDLE_MODE_FP16;
+                } else if (value_string == "trt_int8") {
+                  config_.precision_ = TRITONPADDLE_MODE_INT8;
+                } else {
+                  TRITONSERVER_Error* error = TRITONSERVER_ErrorNew(
+                      TRITONSERVER_ERROR_INVALID_ARG,
+                      std::string(
+                          "unknown precision type '" + value_string +
+                          "' is provided. Available choices are [fluid, trt_fp32, "
+                          "trt_fp16, trt_int8]")
+                          .c_str());
+                  THROW_IF_BACKEND_MODEL_ERROR(error);
+                }
+              } else if (param_key == "min_graph_size") {
+                THROW_IF_BACKEND_MODEL_ERROR(
+                    params.MemberAsString(param_key.c_str(), &value_string));
+                THROW_IF_BACKEND_MODEL_ERROR(
+                    ParseLongLongValue(value_string, &config_.min_graph_size_));
+              } else if (param_key == "workspace_size") {
+                THROW_IF_BACKEND_MODEL_ERROR(
+                    params.MemberAsString(param_key.c_str(), &value_string));
+                THROW_IF_BACKEND_MODEL_ERROR(
+                    ParseLongLongValue(value_string, &config_.workspace_size_));
+              } else if (param_key == "max_batch_size") {
+                THROW_IF_BACKEND_MODEL_ERROR(
+                    params.MemberAsString(param_key.c_str(), &value_string));
+                THROW_IF_BACKEND_MODEL_ERROR(
+                    ParseLongLongValue(value_string, &config_.max_batch_size_));
+              } else if (param_key == "enable_tensorrt_oss") {
+                THROW_IF_BACKEND_MODEL_ERROR(
+                    params.MemberAsString(param_key.c_str(), &value_string));
+                THROW_IF_BACKEND_MODEL_ERROR(
+                    ParseBoolValue(value_string, &config_.enable_tensorrt_oss_));
+              } else if (param_key == "is_dynamic") {
+                THROW_IF_BACKEND_MODEL_ERROR(
+                    params.MemberAsString(param_key.c_str(), &value_string));
+                THROW_IF_BACKEND_MODEL_ERROR(
+                    ParseBoolValue(value_string, &config_.is_dynamic_));
+              } else {
+                TRITONSERVER_Error* error = TRITONSERVER_ErrorNew(
+                    TRITONSERVER_ERROR_INVALID_ARG,
+                    std::string(
+                        "unknown parameter '" + param_key +
+                        "' is provided for GPU execution accelerator "
+                        "config. Available choices are [precision, "
+                        "min_graph_size, workspace_size, max_batch_size, "
+                        "enable_tensorrt_oss, is_dynamic]")
+                        .c_str());
+                THROW_IF_BACKEND_MODEL_ERROR(error);
+              }
+            }
+          }
+        } else if (
+            name == "min_shape" or name == "max_shape" or name == "opt_shape") {
+          triton::common::TritonJson::Value params;
+          if (ea.Find("parameters", &params)) {
+            std::vector<std::string> input_names;
+            THROW_IF_BACKEND_MODEL_ERROR(params.Members(&input_names));
+            for (const auto& input_name : input_names) {
+              std::string str_shape;
+              THROW_IF_BACKEND_MODEL_ERROR(
+                  params.MemberAsString(input_name.c_str(), &str_shape));
+              if (name == "min_shape") {
+                config_.dynamic_min_shape_[input_name] =
+                    TRITONPADDLE_Shape(str_shape).CompatibleShape();
+              } else if (name == "max_shape") {
+                config_.dynamic_max_shape_[input_name] =
+                    TRITONPADDLE_Shape(str_shape).CompatibleShape();
+              } else {
+                config_.dynamic_opt_shape_[input_name] =
+                    TRITONPADDLE_Shape(str_shape).CompatibleShape();
+              }
+            }
+          }
+        } else {
+          TRITONSERVER_Error* error = TRITONSERVER_ErrorNew(
+              TRITONSERVER_ERROR_INVALID_ARG,
+              std::string(
+                  "unknown name '" + name +
+                  "' is provided for GPU execution accelerator "
+                  "Available choices are [config, min_shape, max_shape, opt_shape]")
+                  .c_str());
+          THROW_IF_BACKEND_MODEL_ERROR(error);
+        }
+      }
+    }
+  }
 }
 
 TRITONSERVER_Error*
@@ -658,32 +721,22 @@ ModelInstanceState::DetermineModelAndParamsPath(
     std::string* param_path)
 {
   bool exists;
-  *model_path = JoinPath({model_dir, "__model__"});
-  RETURN_IF_ERROR(FileExists(*model_path, &exists));
-  if (exists) {
-    *model_path = model_dir;
-    *param_path = "";
-    return nullptr;
-  }
-
   *model_path = JoinPath({model_dir, "model.pdmodel"});
   RETURN_IF_ERROR(FileExists(*model_path, &exists));
   if (not exists) {
     return TRITONSERVER_ErrorNew(
         TRITONSERVER_ERROR_NOT_FOUND,
         std::string(
-            "Paddle model should be named as '__model__' or 'model.pdmodel'")
-            .c_str());
+            "Paddle model should be named as 'model.pdmodel'").c_str());
   }
 
   *param_path = JoinPath({model_dir, "model.pdiparams"});
   RETURN_IF_ERROR(FileExists(*param_path, &exists));
   if (not exists) {
-    return TRITONSERVER_ErrorNew(
-        TRITONSERVER_ERROR_NOT_FOUND,
-        std::string("Paddle params should be named as 'model.pdiparams' if "
-                    "'model.pdmodel' is provided")
-            .c_str());
+    LOG_MESSAGE(
+      TRITONSERVER_LOG_INFO,
+      (std::string("Paddle params should be named as 'model.pdiparams' or not provided.").c_str()));
+    *param_path = "";
   }
 
   return nullptr;
@@ -694,6 +747,7 @@ ModelInstanceState::ModelInstanceState(
     : BackendModelInstance(model_state, triton_model_instance),
       model_state_(model_state)
 {
+  auto config = model_state->PaddleConfig();
   auto model_dir = JoinPath(
       {model_state->RepositoryPath(), std::to_string(model_state->Version())});
 
@@ -702,13 +756,12 @@ ModelInstanceState::ModelInstanceState(
   THROW_IF_BACKEND_INSTANCE_ERROR(
       DetermineModelAndParamsPath(model_dir, &model_path, &param_path));
 
-  int device;
   switch (Kind()) {
     case TRITONSERVER_INSTANCEGROUPKIND_CPU:
-      device = -1;  // ModelState::NO_GPU_DEVICE;
+      config->use_cpu_ = true;
       break;
     case TRITONSERVER_INSTANCEGROUPKIND_GPU:
-      device = DeviceId();
+      config->use_cpu_ = false;
       break;
     default:
       throw BackendModelInstanceException(TRITONSERVER_ErrorNew(
@@ -722,7 +775,7 @@ ModelInstanceState::ModelInstanceState(
   THROW_IF_BACKEND_INSTANCE_ERROR(TRITONPADDLE_ModelCreate(
       &triton_paddle_model, model_path.c_str(),
       param_path.empty() ? nullptr : param_path.c_str(),
-      model_state->PaddleConfig(), device));
+      config, DeviceId()));
   triton_paddle_model_.reset(triton_paddle_model, TRITONPADDLE_ModelDelete);
 }
 
@@ -732,6 +785,14 @@ ModelInstanceState::SetInputTensors(
     const uint32_t request_count,
     std::vector<TRITONBACKEND_Response*>* responses)
 {
+// TRITONSERVER_Error*
+// ModelInstanceState::SetInputTensors(
+//     size_t total_batch_size, TRITONBACKEND_Request** requests,
+//     const uint32_t request_count,
+//     std::vector<TRITONBACKEND_Response*>* responses,
+//     BackendInputCollector* collector, std::vector<const char*>* input_names,
+//     bool* cuda_copy)
+// {
   bool cuda_copy = false;
   BackendInputCollector collector(
       requests, request_count, responses,
@@ -785,11 +846,18 @@ ModelInstanceState::SetInputTensors(
       return;
     }
 
-    // TODO: CPU support
-    collector.ProcessTensor(
-        name, TRITONPADDLE_TensorData(tensor),
-        TRITONPADDLE_TensorDataByteSize(tensor), TRITONSERVER_MEMORY_GPU,
-        DeviceId());
+    if (Kind() == TRITONSERVER_INSTANCEGROUPKIND_GPU) {
+      collector.ProcessTensor(
+          name, TRITONPADDLE_TensorData(tensor),
+          TRITONPADDLE_TensorDataByteSize(tensor), TRITONSERVER_MEMORY_GPU,
+          DeviceId());
+    }
+    else {
+        collector.ProcessTensor(
+          name, TRITONPADDLE_TensorData(tensor),
+          TRITONPADDLE_TensorDataByteSize(tensor), TRITONSERVER_MEMORY_CPU,
+          0);
+    }
   }
 
   cuda_copy |= collector.Finalize();
@@ -829,15 +897,22 @@ ModelInstanceState::ReadOutputTensors(
     auto dtype = ConvertDataType(TRITONPADDLE_TensorDataType(tensor));
     auto shape = TRITONPADDLE_TensorShape(tensor).Shape();
 
-    responder.ProcessTensor(
-        name, dtype, shape, TRITONPADDLE_TensorData(tensor),
-        TRITONSERVER_MEMORY_GPU, DeviceId());
+    if (Kind() == TRITONSERVER_INSTANCEGROUPKIND_GPU) {
+      responder.ProcessTensor(
+          name, dtype, shape, TRITONPADDLE_TensorData(tensor),
+          TRITONSERVER_MEMORY_GPU, DeviceId());
+    } else {
+      responder.ProcessTensor(
+          name, dtype, shape, TRITONPADDLE_TensorData(tensor),
+          TRITONSERVER_MEMORY_CPU, 0);
+    }
   }
-  cuda_copy |= responder.Finalize();
 
+  cuda_copy |= responder.Finalize();
   if (cuda_copy) {
     cudaStreamSynchronize(CudaStream());
   }
+
 }
 
 void

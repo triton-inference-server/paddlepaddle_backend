@@ -28,5 +28,13 @@
 set -xe
 
 docker build -t paddle-build .
-docker cp $(docker create --rm paddle-build:latest):/workspace/Paddle/build-env/paddle_inference_install_dir/paddle . 
+docker create --rm --name triton_paddle_build paddle-build:latest
+
+docker cp triton_paddle_build:/opt/tritonserver/Paddle/build-env/paddle_inference_install_dir/paddle .
+docker cp triton_paddle_build:/opt/tritonserver/Paddle/build-env/paddle_inference_install_dir/third_party/install/paddle2onnx .
+docker cp triton_paddle_build:/opt/tritonserver/Paddle/build-env/paddle_inference_install_dir/third_party/install/onnxruntime .
+docker cp triton_paddle_build:/opt/tritonserver/Paddle/build-env/paddle_inference_install_dir/third_party/install/mkldnn .
+docker cp triton_paddle_build:/opt/tritonserver/Paddle/build-env/paddle_inference_install_dir/third_party/install/mklml .
+
 rm paddle/lib/libpaddle_inference.a
+docker rm triton_paddle_build

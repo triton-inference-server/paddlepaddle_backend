@@ -43,7 +43,7 @@ RUN apt update && apt install -y --no-install-recommends software-properties-com
 RUN apt update \
     && apt install -y --no-install-recommends libre2-5 libb64-0d python3 python3-pip libarchive-dev \
     && python3 -m pip install -U pip \
-    && python3 -m pip install paddlepaddle-gpu paddlenlp
+    && python3 -m pip install paddlepaddle-gpu paddlenlp faster_tokenizer
 
 COPY --from=full /opt/tritonserver/bin /opt/tritonserver/bin
 COPY --from=full /opt/tritonserver/lib /opt/tritonserver/lib

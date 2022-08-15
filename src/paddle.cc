@@ -47,6 +47,12 @@ class ModelImpl {
       const char* model_path, const char* param_path,
       TRITONPADDLE_Config* config, const int32_t device_id);
   ~ModelImpl() = default;
+  void CollectShapeRun(paddle_infer::Predictor* predictor,
+                       const std::map<std::string, std::vector<int>>& shape);
+  void CollectTensorRtShapeRange(const char* model_path, const char* param_path,
+                                 TRITONPADDLE_Config* config,
+                                 const int32_t device_id,
+                                 paddle::AnalysisConfig::Precision compute_precision);
   TRITONPADDLE_Error* Run();
 
   TRITONPADDLE_Error* GetInputPtr(
@@ -64,7 +70,80 @@ class ModelImpl {
   std::unique_ptr<paddle_infer::Config> analysis_config_;
   std::shared_ptr<paddle_infer::Predictor> predictor_;
   paddle_infer::PlaceType place_type_;
+  std::string shape_range_info_;
 };
+
+void ModelImpl::CollectShapeRun(paddle_infer::Predictor* predictor,
+                                const std::map<std::string, std::vector<int>>& shape) {
+  auto input_names = predictor->GetInputNames();
+  auto input_type = predictor->GetInputType();
+  for(auto name : input_names) {
+    if(shape.find(name) == shape.end() or
+       input_type.find(name) == input_type.end()) {
+      TRITONPADDLE_Error* error = TRITONPADDLE_ErrorNew(
+          std::string("Paddle Input name [") + std::string(name) +
+          std::string("] is not one of the trt dynamic_shape"));
+      THROW_IF_TRITONPADDLE_ERROR(error);
+    }
+
+    auto tensor = predictor->GetInputHandle(name);
+    auto shape_value = shape.at(name);
+    int shape_num = std::accumulate(shape_value.begin(), shape_value.end(), 1,
+                                    std::multiplies<int>());
+    tensor->Reshape(shape_value);
+    auto dtype = input_type[name];
+    switch (dtype) {
+      case paddle_infer::DataType::FLOAT32: {
+        std::vector<float> input_data(shape_num, 1.0);
+        tensor->CopyFromCpu(input_data.data());
+        break;
+      }
+      case paddle_infer::DataType::INT32: {
+        std::vector<int> input_data(shape_num, 1);
+        tensor->CopyFromCpu(input_data.data());
+        break;
+      }
+      case paddle_infer::DataType::INT64: {
+        std::vector<int64_t> input_data(shape_num, 1);
+        tensor->CopyFromCpu(input_data.data());
+        break;
+      }
+      case paddle_infer::DataType::FLOAT16: {
+        std::vector<phi::dtype::float16> input_data(shape_num, (phi::dtype::float16)1.0);
+        tensor->CopyFromCpu(input_data.data());
+        break;
+      }
+      default: {
+        TRITONPADDLE_Error* error = TRITONPADDLE_ErrorNew(std::string(
+            "input data Paddle backend only supports FP32/INT32/INT64 currently"));
+        THROW_IF_TRITONPADDLE_ERROR(error);
+        break;
+      }
+    }
+  }
+  predictor->Run();
+}
+
+void ModelImpl::CollectTensorRtShapeRange(const char* model_path, const char* param_path,
+                                          TRITONPADDLE_Config* config,
+                                          const int32_t device_id,
+                                          paddle::AnalysisConfig::Precision compute_precision) {
+  paddle_infer::Config analysis_config;
+  if (param_path == nullptr) {
+    analysis_config.SetModel(model_path, "");
+  } else {
+    analysis_config.SetModel(model_path, param_path);
+  }
+  analysis_config.EnableUseGpu(100, device_id);
+  analysis_config.EnableTensorRtEngine(
+        config->workspace_size_, config->max_batch_size_,
+        config->min_graph_size_, compute_precision, false, false);
+  analysis_config.CollectShapeRangeInfo(shape_range_info_);
+  auto predictor = paddle_infer::CreatePredictor(analysis_config);
+  CollectShapeRun(predictor.get(), config->dynamic_min_shape_);
+  CollectShapeRun(predictor.get(), config->dynamic_max_shape_);
+  CollectShapeRun(predictor.get(), config->dynamic_opt_shape_);
+}
 
 ModelImpl::ModelImpl(
     const char* model_path, const char* param_path, TRITONPADDLE_Config* config,
@@ -120,9 +199,9 @@ ModelImpl::ModelImpl(
         config->workspace_size_, config->max_batch_size_,
         config->min_graph_size_, compute_precision, false, false);
       if (config->is_dynamic_) {
-        analysis_config_->SetTRTDynamicShapeInfo(
-            config->dynamic_min_shape_, config->dynamic_max_shape_,
-            config->dynamic_opt_shape_);
+        shape_range_info_ = config->model_dir_ + "/shape_range_info.pbtxt";
+        CollectTensorRtShapeRange(model_path, param_path, config, device_id, compute_precision);
+        analysis_config_->EnableTunedTensorRtDynamicShape(shape_range_info_);
       }
     }
   }
@@ -750,6 +829,7 @@ ModelInstanceState::ModelInstanceState(
   auto config = model_state->PaddleConfig();
   auto model_dir = JoinPath(
       {model_state->RepositoryPath(), std::to_string(model_state->Version())});
+  config->model_dir_ = model_dir;
 
   std::string model_path;
   std::string param_path;

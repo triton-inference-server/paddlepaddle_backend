@@ -145,6 +145,7 @@ class TRITONPADDLE_Config {
   bool use_mkldnn_int8_;
   int cpu_math_library_num_threads_;
   int mkldnn_capacity_;
+  std::string model_dir_;
 
   std::map<std::string, std::vector<int>> dynamic_min_shape_;
   std::map<std::string, std::vector<int>> dynamic_max_shape_;

@@ -865,6 +865,14 @@ ModelInstanceState::SetInputTensors(
     const uint32_t request_count,
     std::vector<TRITONBACKEND_Response*>* responses)
 {
+// TRITONSERVER_Error*
+// ModelInstanceState::SetInputTensors(
+//     size_t total_batch_size, TRITONBACKEND_Request** requests,
+//     const uint32_t request_count,
+//     std::vector<TRITONBACKEND_Response*>* responses,
+//     BackendInputCollector* collector, std::vector<const char*>* input_names,
+//     bool* cuda_copy)
+// {
   bool cuda_copy = false;
   BackendInputCollector collector(
       requests, request_count, responses,

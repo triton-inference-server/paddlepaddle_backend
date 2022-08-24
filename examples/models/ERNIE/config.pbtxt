@@ -1,0 +1,61 @@
+name: "ERNIE"
+backend: "paddle"
+max_batch_size: 64
+input [
+  {
+    name: "input_ids"
+    data_type: TYPE_INT64
+    dims: [ -1 ],
+  },
+  {
+    name: "token_type_ids"
+    data_type: TYPE_INT64
+    dims: [ -1 ],
+  }
+]
+output [
+  {
+    name: "linear_113.tmp_1"
+    data_type: TYPE_FP32
+    dims: [ 15 ]
+  }
+]
+
+instance_group [ 
+  { 
+    count: 1
+    kind: KIND_GPU
+    #gpus: [ 0 ]
+  }
+]
+
+optimization { 
+  execution_accelerators { 
+    gpu_execution_accelerator : [ 
+      { 
+        name : "tensorrt"
+        parameters { key: "precision" value: "trt_fp32" }
+        parameters { key: "min_graph_size" value: "3" }
+        parameters { key: "max_batch_size" value: "16" }
+        parameters { key: "workspace_size" value: "2147483647" }
+        parameters { key: "enable_tensorrt_oss" value: "0" }
+        parameters { key: "is_dynamic" value: "1" }
+      },
+      {
+        name : "min_shape"
+        parameters { key: "input_ids" value: "1 2" }
+        parameters { key: "token_type_ids" value: "1 2" }
+      },
+      {
+        name : "max_shape"
+        parameters { key: "input_ids" value: "16 128" }
+        parameters { key: "token_type_ids" value: "16 128" }
+      },
+      {
+        name : "opt_shape"
+        parameters { key: "input_ids" value: "16 128" }
+        parameters { key: "token_type_ids" value: "16 128" }
+      }
+    ]
+  }
+}

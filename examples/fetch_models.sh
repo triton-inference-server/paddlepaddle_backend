@@ -28,41 +28,19 @@
 set -e
 
 download () {
-  MODEL_URL="https://docs.google.com/uc?export=download&id=$1"
-  FILE_NAME=$2
-  MD5SUM=$3
+  FILE_NAME="models.tar.gz"
 
   if test -f ${FILE_NAME};
   then
     echo "${FILE_NAME} exists."
-    if echo "${MD5SUM}  models.tar.xz" | md5sum -c -;
-    then
-      echo 'md5sum is correct, skip ...'
-      return
-    else
-      echo "md5sum is not match, deleting ${FILE_NAME}"
-      rm -rf ${FILE_NAME}
-    fi
   fi
 
-  if command -v aria2c &> /dev/null; then
-    aria2c --check-certificate=false ${MODEL_URL}
-  else
-    echo $?
-    wget --no-check-certificate ${MODEL_URL} -O ${FILE_NAME}
-  fi
+  wget --no-check-certificate https://paddle-inference-dist.bj.bcebos.com/TritonPaddleBackend/models.tar.gz
 
   echo "Finish downloading ${FILE_NAME}"
 }
 
-download '1dqkDxDV3teMSex13rYIYTsPJcI1FQlsQ' 'models.aa.tar.xz' '5f82ca0bd23d822273a1eaf29db1c84d'
-download '1kmE4Pq4kLE9TtwEkC9IH_DVHHCuKkKEC' 'models.ab.tar.xz' '262ad022740ad853302a00232fa591f8'
-download '14RJ3WAQWD0wXSyc6qRAxZVOkkDxUjSQV' 'models.ac.tar.xz' '7f29d150da8734e57b08a345e9537d09'
-download '1WjyoC__L1o5L4nv413BIvo76QLwwzBx7' 'models.ad.tar.xz' 'c8376eca9d7d615cffa2dbf3dcc53f05'
-download '1-vW4dVsVPmz6AK3rXUTrvdPYopGd6fvz' 'models.ae.tar.xz' '13df7769ef228e769e8deaae85868640'
+download
 
-echo 'Concatenating models.tar.xz'
-cat models.a*.tar.xz > models.tar.xz
-rm -rf models.a*
-echo 'Extracting models.tar.xz'
-tar xf models.tar.xz
+echo 'Extracting models.tar.gz'
+tar zxvf models.tar.gz

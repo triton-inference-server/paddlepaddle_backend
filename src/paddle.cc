@@ -45,14 +45,13 @@ class ModelImpl {
  public:
   ModelImpl(
       const char* model_path, const char* param_path,
-      TRITONPADDLE_Config* config, const int32_t device_id);
+      TRITONPADDLE_Config* config, const int32_t device_id, cudaStream_t stream);
   ~ModelImpl() = default;
   void CollectShapeRun(paddle_infer::Predictor* predictor,
                        const std::map<std::string, std::vector<int>>& shape);
   void CollectTensorRtShapeRange(const char* model_path, const char* param_path,
                                  TRITONPADDLE_Config* config,
-                                 const int32_t device_id,
-                                 paddle::AnalysisConfig::Precision compute_precision);
+                                 const int32_t device_id);
   TRITONPADDLE_Error* Run();
 
   TRITONPADDLE_Error* GetInputPtr(
@@ -76,7 +75,7 @@ class ModelImpl {
 void ModelImpl::CollectShapeRun(paddle_infer::Predictor* predictor,
                                 const std::map<std::string, std::vector<int>>& shape) {
   auto input_names = predictor->GetInputNames();
-  auto input_type = predictor->GetInputType();
+  auto input_type = predictor->GetInputTypes();
   for(auto name : input_names) {
     if(shape.find(name) == shape.end() or
        input_type.find(name) == input_type.end()) {
@@ -126,8 +125,7 @@ void ModelImpl::CollectShapeRun(paddle_infer::Predictor* predictor,
 
 void ModelImpl::CollectTensorRtShapeRange(const char* model_path, const char* param_path,
                                           TRITONPADDLE_Config* config,
-                                          const int32_t device_id,
-                                          paddle::AnalysisConfig::Precision compute_precision) {
+                                          const int32_t device_id) {
   paddle_infer::Config analysis_config;
   if (param_path == nullptr) {
     analysis_config.SetModel(model_path, "");
@@ -135,9 +133,6 @@ void ModelImpl::CollectTensorRtShapeRange(const char* model_path, const char* pa
     analysis_config.SetModel(model_path, param_path);
   }
   analysis_config.EnableUseGpu(100, device_id);
-  analysis_config.EnableTensorRtEngine(
-        config->workspace_size_, config->max_batch_size_,
-        config->min_graph_size_, compute_precision, false, false);
   analysis_config.CollectShapeRangeInfo(shape_range_info_);
   auto predictor = paddle_infer::CreatePredictor(analysis_config);
   CollectShapeRun(predictor.get(), config->dynamic_min_shape_);
@@ -147,7 +142,7 @@ void ModelImpl::CollectTensorRtShapeRange(const char* model_path, const char* pa
 
 ModelImpl::ModelImpl(
     const char* model_path, const char* param_path, TRITONPADDLE_Config* config,
-    const int32_t device_id)
+    const int32_t device_id, cudaStream_t stream)
 {
   analysis_config_.reset(new paddle_infer::Config());
 
@@ -179,6 +174,7 @@ ModelImpl::ModelImpl(
   } else {
     place_type_ = paddle_infer::PlaceType::kGPU;
     analysis_config_->EnableUseGpu(100, device_id);
+    analysis_config_->SetExecStream((void*)stream);
 
     paddle::AnalysisConfig::Precision compute_precision;
     compute_precision = paddle::AnalysisConfig::Precision::kFloat32;
@@ -198,9 +194,12 @@ ModelImpl::ModelImpl(
       analysis_config_->EnableTensorRtEngine(
         config->workspace_size_, config->max_batch_size_,
         config->min_graph_size_, compute_precision, false, false);
+      if (config->enable_tensorrt_oss_) {
+        analysis_config_->EnableVarseqlen();
+      }
       if (config->is_dynamic_) {
         shape_range_info_ = config->model_dir_ + "/shape_range_info.pbtxt";
-        CollectTensorRtShapeRange(model_path, param_path, config, device_id, compute_precision);
+        CollectTensorRtShapeRange(model_path, param_path, config, device_id);
         analysis_config_->EnableTunedTensorRtDynamicShape(shape_range_info_);
       }
     }
@@ -321,11 +320,11 @@ ModelImpl::GetOutputMetadata(
 TRITONSERVER_Error*
 TRITONPADDLE_ModelCreate(
     TRITONPADDLE_Model** model, const char* model_path, const char* param_path,
-    TRITONPADDLE_Config* config, const int32_t device_id)
+    TRITONPADDLE_Config* config, const int32_t device_id, cudaStream_t stream)
 {
   try {
     ModelImpl* model_impl =
-        new ModelImpl(model_path, param_path, config, device_id);
+        new ModelImpl(model_path, param_path, config, device_id, stream);
     *model = reinterpret_cast<TRITONPADDLE_Model*>(model_impl);
   }
   catch (const TRITONPADDLE_Exception& ex) {
@@ -855,7 +854,7 @@ ModelInstanceState::ModelInstanceState(
   THROW_IF_BACKEND_INSTANCE_ERROR(TRITONPADDLE_ModelCreate(
       &triton_paddle_model, model_path.c_str(),
       param_path.empty() ? nullptr : param_path.c_str(),
-      config, DeviceId()));
+      config, DeviceId(), CudaStream()));
   triton_paddle_model_.reset(triton_paddle_model, TRITONPADDLE_ModelDelete);
 }
 

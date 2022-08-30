@@ -632,7 +632,7 @@ ModelState::ModelState(TRITONBACKEND_Model* triton_model)
                     ParseBoolValue(value_string, &config_.is_dynamic_));
               } else if (param_key == "disenable_trt_tune") {
                 THROW_IF_BACKEND_MODEL_ERROR(
-                    params.MemberAsString(param_key.c_str(), &valucp e_string));
+                    params.MemberAsString(param_key.c_str(), &value_string));
                 THROW_IF_BACKEND_MODEL_ERROR(
                     ParseBoolValue(value_string, &config_.disenable_trt_tune_));
               } else {

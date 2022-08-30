@@ -198,8 +198,10 @@ ModelImpl::ModelImpl(
         analysis_config_->EnableVarseqlen();
       }
       if (config->is_dynamic_) {
-        shape_range_info_ = config->model_dir_ + "/shape_range_info.pbtxt";
-        CollectTensorRtShapeRange(model_path, param_path, config, device_id);
+        shape_range_info_ = triton::backend::JoinPath({config->model_dir_, "shape_range_info.pbtxt"});
+        if (!config->disenable_trt_tune_) {
+          CollectTensorRtShapeRange(model_path, param_path, config, device_id);
+        }
         analysis_config_->EnableTunedTensorRtDynamicShape(shape_range_info_);
       }
     }
@@ -628,6 +630,11 @@ ModelState::ModelState(TRITONBACKEND_Model* triton_model)
                     params.MemberAsString(param_key.c_str(), &value_string));
                 THROW_IF_BACKEND_MODEL_ERROR(
                     ParseBoolValue(value_string, &config_.is_dynamic_));
+              } else if (param_key == "disenable_trt_tune") {
+                THROW_IF_BACKEND_MODEL_ERROR(
+                    params.MemberAsString(param_key.c_str(), &value_string));
+                THROW_IF_BACKEND_MODEL_ERROR(
+                    ParseBoolValue(value_string, &config_.disenable_trt_tune_));
               } else {
                 TRITONSERVER_Error* error = TRITONSERVER_ErrorNew(
                     TRITONSERVER_ERROR_INVALID_ARG,

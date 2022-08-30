@@ -132,7 +132,7 @@ void ModelImpl::CollectTensorRtShapeRange(const char* model_path, const char* pa
   } else {
     analysis_config.SetModel(model_path, param_path);
   }
-  analysis_config.EnableUseGpu(100, device_id);
+  // analysis_config.EnableUseGpu(100, device_id);
   analysis_config.CollectShapeRangeInfo(shape_range_info_);
   auto predictor = paddle_infer::CreatePredictor(analysis_config);
   CollectShapeRun(predictor.get(), config->dynamic_min_shape_);
@@ -632,7 +632,7 @@ ModelState::ModelState(TRITONBACKEND_Model* triton_model)
                     ParseBoolValue(value_string, &config_.is_dynamic_));
               } else if (param_key == "disenable_trt_tune") {
                 THROW_IF_BACKEND_MODEL_ERROR(
-                    params.MemberAsString(param_key.c_str(), &value_string));
+                    params.MemberAsString(param_key.c_str(), &valucp e_string));
                 THROW_IF_BACKEND_MODEL_ERROR(
                     ParseBoolValue(value_string, &config_.disenable_trt_tune_));
               } else {

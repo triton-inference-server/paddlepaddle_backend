@@ -204,9 +204,9 @@ TRITONPADDLE_ErrorDelete(TRITONPADDLE_Error* error)
 TRITONPADDLE_Config::TRITONPADDLE_Config()
     : use_trt_(false), max_batch_size_(1), workspace_size_(1 << 30), min_graph_size_(5),
       precision_(TRITONPADDLE_MODE_FP32), is_dynamic_(false),
-      enable_tensorrt_oss_(false), use_cpu_(false), use_mkldnn_(false),
-      use_ort_(false), use_mkldnn_int8_(false), cpu_math_library_num_threads_(1), 
-      mkldnn_capacity_(10)
+      enable_tensorrt_oss_(false), disenable_trt_tune_(false), use_cpu_(false),
+      use_mkldnn_(false), use_ort_(false), use_mkldnn_int8_(false),
+      cpu_math_library_num_threads_(1), mkldnn_capacity_(10), model_dir_("")
 {
 }
 

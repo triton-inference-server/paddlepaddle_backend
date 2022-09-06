@@ -27,6 +27,6 @@
 docker run -it --rm \
            --net=host \
            -v `pwd`/perf_data:/workspace/data \
-           nvcr.io/nvidia/tritonserver:21.04-py3-sdk \
+           nvcr.io/nvidia/tritonserver:21.10-py3-sdk \
            /bin/bash -c \
-           'for b in 1 2 4 8 16 32; do perf_analyzer -m ERNIE-QNLI --input-data /workspace/data/perf.${b}.json; done'
+           'for b in 1 2 4 8 16; do perf_analyzer -m ERNIE --shape input_ids:128 --shape token_type_ids:128 --input-data zero -b ${b}; done'

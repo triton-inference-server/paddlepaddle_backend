@@ -26,6 +26,6 @@
 
 docker run -it --rm \
            --net=host \
-           nvcr.io/nvidia/tritonserver:21.04-py3-sdk \
+           nvcr.io/nvidia/tritonserver:21.10-py3-sdk \
            /bin/bash -c \
            'for b in 1 2 4 8 16 32 64 128; do perf_analyzer -m ResNet50-v1.5 -b $b; done'

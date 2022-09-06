@@ -138,6 +138,7 @@ class TRITONPADDLE_Config {
   TRITONPADDLE_Precision precision_;
   bool is_dynamic_;
   bool enable_tensorrt_oss_;
+  bool disenable_trt_tune_;
   // cpu
   bool use_cpu_;
   bool use_mkldnn_;

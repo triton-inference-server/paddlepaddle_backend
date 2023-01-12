@@ -33,7 +33,7 @@ set(PADDLE_INCLUDE_PATHS "${PADDLE_INFERENCE_DIR}/include"
   CACHE PATH "Paths to Paddle Inference includes. Multiple paths may be specified by sparating them with a semicolon.")
 set(PADDLE_LIB_PATHS "${PADDLE_INFERENCE_DIR}/lib"
   CACHE PATH "Paths to Paddle Inference libraries. Multiple paths may be specified by sparating them with a semicolon.")
-set(PADDLE_LIB_NAME "paddle_inference")
+set(PADDLE_LIB_NAME "paddle_inference_c")
 
 set(TRITON_COMMON_REPO_TAG "main" CACHE STRING "Tag for triton-inference-server/common repo")
 set(TRITON_CORE_REPO_TAG "main" CACHE STRING "Tag for triton-inference-server/core repo")

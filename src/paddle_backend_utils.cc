@@ -32,7 +32,7 @@
 #include <numeric>
 #include <sstream>
 
-// namespace triton { namespace backend { namespace paddle {
+namespace triton { namespace backend { namespace paddle {
 
 template TRITONPADDLE_Shape::TRITONPADDLE_Shape(
     const std::vector<int64_t>& shape);
@@ -43,8 +43,6 @@ template <typename T>
 TRITONPADDLE_Shape::TRITONPADDLE_Shape(const std::vector<T>& shape)
 {
   shape_ = std::vector<value_type>(shape.cbegin(), shape.cend());
-  numel_ = std::accumulate(
-      shape_.cbegin(), shape_.cend(), 1, std::multiplies<value_type>());
 }
 
 TRITONPADDLE_Shape::TRITONPADDLE_Shape(const std::string& str)
@@ -68,146 +66,253 @@ TRITONPADDLE_Shape::CompatibleShape() const
   return std::vector<int32_t>(shape_.cbegin(), shape_.cend());
 }
 
-TRITONPADDLE_DataType
-ConvertDataType(TRITONSERVER_DataType dtype)
-{
-  switch (dtype) {
-    case TRITONSERVER_TYPE_INVALID:
-      return TRITONPADDLE_TYPE_INVALID;
-    case TRITONSERVER_TYPE_UINT8:
-      return TRITONPADDLE_TYPE_UINT8;
-    case TRITONSERVER_TYPE_INT8:
-      return TRITONPADDLE_TYPE_INT8;
-    case TRITONSERVER_TYPE_INT32:
-      return TRITONPADDLE_TYPE_INT32;
-    case TRITONSERVER_TYPE_INT64:
-      return TRITONPADDLE_TYPE_INT64;
-    case TRITONSERVER_TYPE_FP32:
-      return TRITONPADDLE_TYPE_FP32;
-    case TRITONSERVER_TYPE_FP16:
-      return TRITONPADDLE_TYPE_FP16;
-    default:
-      break;
+TRITONSERVER_Error*
+InputOutputInfos(PD_Predictor* predictor,
+                 bool is_input,
+                 PaddleTensorInfoMap& infos) {
+  infos.clear();
+  PD_IOInfos* pd_infos;
+  if(is_input) {
+    pd_infos = PD_PredictorGetInputInfos(predictor);
+  } else {
+    pd_infos = PD_PredictorGetOutputInfos(predictor);
   }
-  return TRITONPADDLE_TYPE_INVALID;
+  
+  for (size_t i = 0; i < pd_infos->size; i++) {
+    char* cname = pd_infos->io_info[i]->name->data;
+    std::string name(cname);
+    PD_DataType type = pd_infos->io_info[i]->dtype;
+    size_t num_dims = pd_infos->io_info[i]->shape->size;
+    std::vector<int64_t> dims(num_dims);
+    for (size_t j = 0; i < num_dims; j++) {
+      dims[j] = pd_infos->io_info[i]->shape->data[j];
+    }
+    infos.emplace(std::move(name), PaddleTensorInfo(type, dims));
+  }
+
+  PD_IOInfosDestroy(pd_infos);
+  return nullptr;  // success
+}
+
+TRITONSERVER_Error* InputInfos(
+    PD_Predictor* predictor, PaddleTensorInfoMap& infos) {
+  return InputOutputInfos(predictor, true, infos);
+}
+
+TRITONSERVER_Error* OutputInfos(
+    PD_Predictor* predictor, PaddleTensorInfoMap& infos) {
+  return InputOutputInfos(predictor, false, infos);
+}
+
+TRITONSERVER_Error* PaddleInputMutableData(
+    PD_Tensor* pd_tensor, TRITONSERVER_DataType data_type,
+    PD_PlaceType place_type, char** data_ptr) {
+  if(data_type == TRITONSERVER_TYPE_UINT8) {
+    *data_ptr = reinterpret_cast<char*>(
+                  PD_TensorMutableDataUint8(pd_tensor, place_type));
+  } else if(data_type == TRITONSERVER_TYPE_INT8) {
+    *data_ptr = reinterpret_cast<char*>(
+                  PD_TensorMutableDataInt8(pd_tensor, place_type));
+  } else if(data_type == TRITONSERVER_TYPE_INT32) {
+    *data_ptr = reinterpret_cast<char*>(
+                  PD_TensorMutableDataInt32(pd_tensor, place_type));
+  }  else if(data_type == TRITONSERVER_TYPE_FP64) {
+    *data_ptr = reinterpret_cast<char*>(
+                  PD_TensorMutableDataInt64(pd_tensor, place_type));
+  } else if(data_type == TRITONSERVER_TYPE_FP32) {
+    *data_ptr = reinterpret_cast<char*>(
+                  PD_TensorMutableDataFloat(pd_tensor, place_type));
+  } else {
+    return TRITONSERVER_ErrorNew(
+      TRITONSERVER_ERROR_INVALID_ARG,
+        (std::string("Unexpected data type[") +
+          TRITONSERVER_DataTypeString(data_type) +
+         "] when get input mutable data.").c_str());
+  }
+
+  return nullptr;  // success
+}
+
+TRITONSERVER_Error* PaddleOutputData(
+    PD_Tensor* output_tensor, TRITONSERVER_DataType data_type,
+    PD_PlaceType* place_type, std::vector<int64_t>& shapes,
+    char** data_ptr) {
+
+  {
+    PD_OneDimArrayInt32* output_shape = PD_TensorGetShape(output_tensor);
+    shapes.resize(output_shape->size);
+    for (size_t i = 0; i < output_shape->size; ++i) {
+      shapes[i] = output_shape->data[i];
+    }
+    PD_OneDimArrayInt32Destroy(output_shape);
+  }
+
+  int32_t shape_size;
+  if(data_type == TRITONSERVER_TYPE_UINT8) {
+    *data_ptr = reinterpret_cast<char*>(
+                  PD_TensorDataUint8(output_tensor, place_type,
+                    &shape_size));
+  } else if(data_type == TRITONSERVER_TYPE_INT8) {
+    *data_ptr = reinterpret_cast<char*>(
+                  PD_TensorDataInt8(output_tensor, place_type,
+                    &shape_size));
+  } else if(data_type == TRITONSERVER_TYPE_INT32) {
+    *data_ptr = reinterpret_cast<char*>(
+                  PD_TensorDataInt32(output_tensor, place_type,
+                    &shape_size));
+  }  else if(data_type == TRITONSERVER_TYPE_FP64) {
+    *data_ptr = reinterpret_cast<char*>(
+                  PD_TensorDataInt64(output_tensor, place_type,
+                    &shape_size));
+  } else if(data_type == TRITONSERVER_TYPE_FP32) {
+    *data_ptr = reinterpret_cast<char*>(
+                  PD_TensorDataFloat(output_tensor, place_type,
+                                &shape_size));
+  } else {
+    return TRITONSERVER_ErrorNew(
+      TRITONSERVER_ERROR_INVALID_ARG,
+        (std::string("Unexpected data type[") +
+          TRITONSERVER_DataTypeString(data_type) +
+         "] when get output data.").c_str());
+  }
+  
+  return nullptr;
+}
+
+PD_DataType
+ModelConfigDataTypeToPaddleDataType(const std::string& data_type_str)
+{
+  // Must start with "TYPE_".
+  if (data_type_str.rfind("TYPE_", 0) != 0) {
+    return PD_DATA_UNK;
+  }
+
+  const std::string dtype = data_type_str.substr(strlen("TYPE_"));
+
+  if (dtype == "UINT8") {
+    return PD_DATA_UINT8;
+  } else if (dtype == "INT8") {
+    return PD_DATA_INT8;
+  } else if (dtype == "INT32") {
+    return PD_DATA_INT32;
+  } else if (dtype == "INT64") {
+    return PD_DATA_INT64;
+  } else if (dtype == "FP32") {
+    return PD_DATA_FLOAT32;
+  }
+
+  return PD_DATA_UNK;
+}
+
+std::string
+PaddleDataTypeToModelConfigDataType(PD_DataType data_type)
+{
+  if (data_type == PD_DATA_UINT8) {
+    return "TYPE_UINT8";
+  } else if (data_type == PD_DATA_INT8) {
+    return "TYPE_INT8";
+  } else if (data_type == PD_DATA_INT32) {
+    return "TYPE_INT32";
+  } else if (data_type == PD_DATA_INT64) {
+    return "TYPE_INT64";
+  } else if (data_type == PD_DATA_FLOAT32) {
+    return "TYPE_FP32";
+  }
+
+  return "TYPE_INVALID";
 }
 
 TRITONSERVER_DataType
-ConvertDataType(TRITONPADDLE_DataType dtype)
+ConvertFromPaddleDataType(PD_DataType pd_type)
 {
-  switch (dtype) {
-    case TRITONPADDLE_TYPE_INVALID:
-      return TRITONSERVER_TYPE_INVALID;
-    case TRITONPADDLE_TYPE_UINT8:
-      return TRITONSERVER_TYPE_UINT8;
-    case TRITONPADDLE_TYPE_INT8:
-      return TRITONSERVER_TYPE_INT8;
-    case TRITONPADDLE_TYPE_INT32:
-      return TRITONSERVER_TYPE_INT32;
-    case TRITONPADDLE_TYPE_INT64:
-      return TRITONSERVER_TYPE_INT64;
-    case TRITONPADDLE_TYPE_FP32:
+  switch (pd_type) {
+    case PD_DATA_FLOAT32:
       return TRITONSERVER_TYPE_FP32;
-    case TRITONPADDLE_TYPE_FP16:
-      return TRITONSERVER_TYPE_FP16;
+    case PD_DATA_UINT8:
+      return TRITONSERVER_TYPE_UINT8;
+    case PD_DATA_INT8:
+      return TRITONSERVER_TYPE_INT8;
+    case PD_DATA_INT32:
+      return TRITONSERVER_TYPE_INT32;
+    case PD_DATA_INT64:
+      return TRITONSERVER_TYPE_INT64;
+    case PD_DATA_UNK:
+      return TRITONSERVER_TYPE_INVALID;
     default:
       break;
   }
+
   return TRITONSERVER_TYPE_INVALID;
 }
 
-TRITONPADDLE_DataType
-ConvertDataType(::paddle_infer::DataType dtype)
-{
-  switch (dtype) {
-    case ::paddle_infer::DataType::FLOAT32:
-      return TRITONPADDLE_TYPE_FP32;
-    case ::paddle_infer::DataType::INT64:
-      return TRITONPADDLE_TYPE_INT64;
-    case ::paddle_infer::DataType::INT32:
-      return TRITONPADDLE_TYPE_INT32;
-    case ::paddle_infer::DataType::UINT8:
-      return TRITONPADDLE_TYPE_UINT8;
-    // case ::paddle_infer::DataType::INT8:
-    //   return TRITONPADDLE_TYPE_INT8;
-    default:
-      break;
-  }
-  return TRITONPADDLE_TYPE_INVALID;
-}
+TRITONSERVER_Error*
+CompareDimsSupported(
+    const std::string& model_name, const std::string& tensor_name,
+    const std::vector<int64_t>& model_shape, const std::vector<int64_t>& dims,
+    const int max_batch_size, const bool compare_exact) {
+  // If the model configuration expects batching support in the model,
+  // then the shape first dimension must be -1.
+  const bool supports_batching = (max_batch_size > 0);
+  if (supports_batching) {
+    RETURN_ERROR_IF_TRUE(
+        (model_shape.size() == 0) || (model_shape[0] != -1),
+        TRITONSERVER_ERROR_INVALID_ARG,
+        std::string("model '") + model_name + "', tensor '" + tensor_name +
+            "': for the model to support batching the shape should have at "
+            "least 1 dimension and the first dimension must be -1; but shape "
+            "expected by the model is " +
+            ShapeToString(model_shape));
 
-TRITONPADDLE_DataType
-ConvertDataType(const std::string& dtype)
-{
-  if (dtype == "TYPE_INVALID") {
-    return TRITONPADDLE_DataType::TRITONPADDLE_TYPE_INVALID;
-  } else if (dtype == "TYPE_FP32") {
-    return TRITONPADDLE_DataType::TRITONPADDLE_TYPE_FP32;
-  } else if (dtype == "TYPE_UINT8") {
-    return TRITONPADDLE_DataType::TRITONPADDLE_TYPE_UINT8;
-  } else if (dtype == "TYPE_INT8") {
-    return TRITONPADDLE_DataType::TRITONPADDLE_TYPE_INT8;
-  } else if (dtype == "TYPE_INT32") {
-    return TRITONPADDLE_DataType::TRITONPADDLE_TYPE_INT32;
-  } else if (dtype == "TYPE_INT64") {
-    return TRITONPADDLE_DataType::TRITONPADDLE_TYPE_INT64;
-  } else if (dtype == "TYPE_FP16") {
-    return TRITONPADDLE_DataType::TRITONPADDLE_TYPE_FP16;
-  } 
-  return TRITONPADDLE_DataType::TRITONPADDLE_TYPE_INVALID;
-}
+    std::vector<int64_t> full_dims;
+    full_dims.reserve(1 + dims.size());
+    full_dims.push_back(-1);
+    full_dims.insert(full_dims.end(), dims.begin(), dims.end());
 
-size_t
-TRITONPADDLE_DataTypeByteSize(TRITONPADDLE_DataType dtype)
-{
-  switch (dtype) {
-    case TRITONPADDLE_DataType::TRITONPADDLE_TYPE_FP32:
-      return sizeof(float);
-    case TRITONPADDLE_DataType::TRITONPADDLE_TYPE_INT64:
-      return sizeof(int64_t);
-    case TRITONPADDLE_DataType::TRITONPADDLE_TYPE_INT32:
-      return sizeof(int32_t);
-    case TRITONPADDLE_DataType::TRITONPADDLE_TYPE_UINT8:
-      return sizeof(uint8_t);
-    case TRITONPADDLE_DataType::TRITONPADDLE_TYPE_INT8:
-      return sizeof(int8_t);
-    case TRITONPADDLE_DataType::TRITONPADDLE_TYPE_FP16:
-      return sizeof(phi::dtype::float16);
-    default:
-      break;
-  }
-  return 0;  // Should not happened, TODO: Error handling
-}
+    bool succ = (model_shape.size() == (size_t)full_dims.size());
+    if (succ) {
+      for (size_t i = 0; i < full_dims.size(); ++i) {
+        const int64_t model_dim = model_shape[i];
+        if (compare_exact || (model_dim != -1)) {
+          succ &= (model_dim == full_dims[i]);
+        }
+      }
+    }
 
-/* Error message */
+    RETURN_ERROR_IF_TRUE(
+        !succ, TRITONSERVER_ERROR_INVALID_ARG,
+        std::string("model '") + model_name + "', tensor '" + tensor_name +
+            "': the model expects " + std::to_string(model_shape.size()) +
+            " dimensions (shape " + ShapeToString(model_shape) +
+            ") but the model configuration specifies " +
+            std::to_string(full_dims.size()) +
+            " dimensions (an initial batch dimension because max_batch_size "
+            "> 0 followed by the explicit tensor shape, making complete "
+            "shape " +
+            ShapeToString(full_dims) + ")");
+  } else {
+    // ! supports_batching
+    bool succ = (model_shape.size() == dims.size());
+    if (succ) {
+      for (size_t i = 0; i < dims.size(); ++i) {
+        const int64_t model_dim = model_shape[i];
+        if (compare_exact || (model_dim != -1)) {
+          succ &= (model_dim == dims[i]);
+        }
+      }
+    }
 
-TRITONPADDLE_Error*
-TRITONPADDLE_ErrorNew(const std::string& str)
-{
-  TRITONPADDLE_Error* error = new TRITONPADDLE_Error();
-  error->msg_ = new char[str.size() + 1];
-  std::strcpy(error->msg_, str.c_str());
-  return error;
-}
-
-void
-TRITONPADDLE_ErrorDelete(TRITONPADDLE_Error* error)
-{
-  if (error == nullptr) {
-    return;
+    RETURN_ERROR_IF_TRUE(
+        !succ, TRITONSERVER_ERROR_INVALID_ARG,
+        std::string("model '") + model_name + "', tensor '" + tensor_name +
+            "': the model expects " + std::to_string(model_shape.size()) +
+            " dimensions (shape " + ShapeToString(model_shape) +
+            ") but the model configuration specifies " +
+            std::to_string(dims.size()) + " dimensions (shape " +
+            ShapeToString(dims) + ")");
   }
 
-  delete[] error->msg_;
-  delete error;
+  return nullptr;  // success
 }
 
-TRITONPADDLE_Config::TRITONPADDLE_Config()
-    : use_trt_(false), max_batch_size_(1), workspace_size_(1 << 30), min_graph_size_(5),
-      precision_(TRITONPADDLE_MODE_FP32), is_dynamic_(false),
-      enable_tensorrt_oss_(false), disenable_trt_tune_(false), use_cpu_(false),
-      use_mkldnn_(false), use_ort_(false), use_mkldnn_int8_(false),
-      cpu_math_library_num_threads_(1), mkldnn_capacity_(10), model_dir_("")
-{
-}
 
-// }}}
+}}}

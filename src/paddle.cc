@@ -53,7 +53,7 @@ class ModelState : public BackendModel {
 
   TRITONSERVER_Error* PrintModelConfig();
 
-  // Load an Paddle model using 'artifact_name' as the name for the Paddle
+  // Load a Paddle model using 'artifact_name' as the name for the Paddle
   // file/directory. If 'instance_group_kind' is not
   // TRITONSERVER_INSTANCEGROUPKIND_AUTO then use it and
   // 'instance_group_device_id' to initialize the appropriate
@@ -64,7 +64,7 @@ class ModelState : public BackendModel {
       const TRITONSERVER_InstanceGroupKind instance_group_kind,
       const int32_t instance_group_device_id,
       std::string* model_path, std::string* params_path,
-      cudaStream_t stream, PD_PlaceType* pd_plcace_type,
+      cudaStream_t stream, PD_PlaceType* pd_place_type,
       PD_Predictor** predictor);
 
  private:
@@ -199,11 +199,11 @@ ModelState::ModelState(TRITONBACKEND_Model* triton_model)
     triton::common::TritonJson::Value gpu_eas;
     if (eas.Find("gpu_execution_accelerator", &gpu_eas)) {
       size_t names_num = 0;
-      char** input_tensor_names = NULL;
-      size_t* shapes_num = NULL;
-      int32_t** min_shapes = NULL;
-      int32_t** max_shapes = NULL;
-      int32_t** opt_shapes = NULL;
+      char** input_tensor_names = nullptr;
+      size_t* shapes_num = nullptr;
+      int32_t** min_shapes = nullptr;
+      int32_t** max_shapes = nullptr;
+      int32_t** opt_shapes = nullptr;
       PD_Bool disable_trt_plugin_fp16 = 0;
 
       for (size_t idx = 0; idx < gpu_eas.ArraySize(); idx++) {
@@ -280,14 +280,14 @@ ModelState::ModelState(TRITONBACKEND_Model* triton_model)
                 THROW_IF_BACKEND_MODEL_ERROR(
                     params.MemberAsString(param_key.c_str(), &value_string));
                 THROW_IF_BACKEND_MODEL_ERROR(
-                    ParseBoolValue(value_string, &pd_trt_config_.disenable_trt_tune_));
+                    ParseBoolValue(value_string, &pd_trt_config_.disable_trt_tune_));
               } else if (param_key == "disable_trt_plugin_fp16") {
                 bool tmp_value;
                 THROW_IF_BACKEND_MODEL_ERROR(
                     params.MemberAsString(param_key.c_str(), &value_string));
                 THROW_IF_BACKEND_MODEL_ERROR(
                     ParseBoolValue(value_string, &tmp_value));
-                disable_trt_plugin_fp16 = (PD_Bool)tmp_value;
+                disable_trt_plugin_fp16 = static_cast<PD_Bool>(tmp_value);
               } 
               else {
                 TRITONSERVER_Error* error = TRITONSERVER_ErrorNew(
@@ -470,17 +470,16 @@ TRITONSERVER_Error* ModelState::CollectShapeRun(PD_Predictor* predictor,
 TRITONSERVER_Error*
 ModelState::CollectTensorRtShapeRange(std::string* model_path, std::string* params_path,
                                       const char* range_info_path, int32_t device_id) {
-  PD_Config* pd_config = PD_ConfigCreate();
-  PD_ConfigSetModel(pd_config,
+  std::unique_ptr<PD_Config, PDConfigDeleter> pd_config(PD_ConfigCreate());
+  PD_ConfigSetModel(pd_config.get(),
                     model_path->c_str(),
                     params_path->c_str());
   PD_ConfigCollectShapeRangeInfo(pd_config, range_info_path);
-  PD_Predictor* predictor = PD_PredictorCreate(pd_config);
+  std::unique_ptr<PD_Predictor, PD_PredictorDeleter> predictor(
+                                     PD_PredictorCreate(pd_config.get()));
   RETURN_IF_ERROR(CollectShapeRun(predictor, pd_trt_config_.min_shapes_));
   RETURN_IF_ERROR(CollectShapeRun(predictor, pd_trt_config_.max_shapes_));
   RETURN_IF_ERROR(CollectShapeRun(predictor, pd_trt_config_.opt_shapes_));
-  PD_ConfigDestroy(pd_config); 
-  PD_PredictorDestroy(predictor);
   return nullptr;
 }
 
@@ -548,7 +547,7 @@ TRITONSERVER_Error* ModelState::LoadModel(
     PD_ConfigSetExecStream(pd_config_.get(), (void*)stream);
     if(PD_ConfigTensorRtDynamicShapeEnabled(pd_config_.get()) == 1) {
       auto range_info_path = triton::backend::JoinPath({dir_path, "shape_range_info.pbtxt"});
-      if (!pd_trt_config_.disenable_trt_tune_) {
+      if (!pd_trt_config_.disable_trt_tune_) {
           CollectTensorRtShapeRange(model_path, params_path,
                                     range_info_path.c_str(), instance_group_device_id);
         }
@@ -1372,11 +1371,6 @@ ModelInstanceState::Run(
     const uint32_t response_count)
 {
   PD_PredictorRun(pd_predictor_);
-#ifdef TRITON_ENABLE_GPU
-  if (Kind() == TRITONSERVER_INSTANCEGROUPKIND_GPU) {
-    cudaStreamSynchronize(CudaStream());
-  }
-#endif
   return nullptr;
 }
 

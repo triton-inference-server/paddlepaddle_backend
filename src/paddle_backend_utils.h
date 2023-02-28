@@ -59,7 +59,7 @@ struct PaddleTRTConfig {
   std::unordered_map<std::string, std::vector<int>> max_shapes_;
   std::unordered_map<std::string, std::vector<int>> opt_shapes_;
   bool is_dynamic_ = false;
-  bool disenable_trt_tune_ = false;
+  bool disable_trt_tune_ = false;
 };
 
 struct PDConfigDeleter {

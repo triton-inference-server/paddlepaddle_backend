@@ -32,8 +32,7 @@ English | [简体中文](README_cn.md)
 ## Table of Contents
 
 - [Quick Start](#quick-start)
-    - [Build Paddle](#build-paddle)
-    - [Build Paddle Backend](#build-paddle-backend)
+    - [Pull Image](#pull-image)
     - [Create a Model Repository](#create-a-model-repository)
     - [Launch Triton Inference Server](#launch-triton-inference-server)
     - [Verify Triton Is Running Correctly](#verify-triton-is-running-correctly)
@@ -47,25 +46,13 @@ English | [简体中文](README_cn.md)
 
 ## Quick Start
 
-### Build Paddle
-Paddle backend requires paddle inference API, so it is necessary to have paddle inference lib.
-
-Use [build_paddle.sh](paddle-lib/build_paddle.sh) to build paddle inference lib and headers. This step may takes lots of time.
+### Pull Image
 
 ```bash
-$ cd paddle-lib
-$ bash build_paddle.sh
-$ cd .. # back to root of paddle_backend
+docker pull paddlepaddle/triton_paddle:21.10
 ```
 
-After paddle is successfully built, please check a directory called ``paddle`` is under paddle-lib directory.
-
-### Build Paddle backend
-Build ``libtriton_paddle.so`` by [scripts/build_paddle_backend.sh](scripts/build_paddle_backend.sh)
-
-```bash
-$ bash scripts/build_paddle_backend.sh
-```
+Note: Only Triton Inference Server 21.10 image is supported.
 
 ### Create A Model Repository
 
@@ -82,11 +69,21 @@ $ cd .. # back to root of paddle_backend
 
 ### Launch Triton Inference Server
 
-Launch triton inference server with single GPU, you can change any docker related configurations in [scripts/launch_triton_server.sh](scripts/launch_triton_server.sh) if necessary.
+1. Launch the image
 
 ```bash
-$ bash scripts/launch_triton_server.sh
+$ docker run --gpus=all --rm -it --name triton_server --net=host -e CUDA_VISIBLE_DEVICES=0 \
+           -v `pwd`/examples/models:/workspace/models \
+           paddlepaddle/triton_paddle:21.10 /bin/bash
 ```
+
+2. Launch the triton inference server
+
+```bash
+/opt/tritonserver/bin/tritonserver --model-repository=/workspace/models
+```
+
+Note: `/opt/tritonserver/bin/tritonserver --help` for all available parameters
 
 ### Verify Triton Is Running Correctly
 
@@ -109,10 +106,9 @@ it is not ready.
 
 Before running the examples, please make sure the triton server is running [correctly](#verify-triton-is-running-correctly).
 
-Change working directory to [examples](examples) and download the data
+Change working directory to [examples](examples)
 ```bash
 $ cd examples
-$ ./fetch_perf_data.sh # download benchmark input
 ```
 
 ### ERNIE Base

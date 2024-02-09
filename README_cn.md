@@ -94,10 +94,9 @@ HTTP请求返回200代表服务正常，否则服务有问题
 
 在运行示例之前，需要确保服务已经启动并[正常运行](#验证Triton服务是否正常).
 
-进入[examples](examples)目录并下载数据
+进入[examples](examples)目录
 ```bash
 $ cd examples
-$ ./fetch_perf_data.sh # download benchmark input
 ```
 
 ### ERNIE Base
